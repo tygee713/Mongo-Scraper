@@ -3,10 +3,14 @@ var bodyParser = require('body-parser');
 var mongoose = require('mongoose');
 var request = require("request");
 var cheerio = require("cheerio");
+var path = require("path");
+
+var Article = require('./models/Article.js');
+var Comment = require('./models/Comment.js');
 
 var app = express();
 //Serve static content for the app from the "public" directory in the application directory.
-app.use(express.static(__dirname + '/public'));
+app.use(express.static(path.join(__dirname, 'public')));
 
 // parse application/x-www-form-urlencoded
 app.use(bodyParser.urlencoded({ extended: false }))
@@ -15,13 +19,13 @@ var exphbs = require('express-handlebars');
 app.engine('handlebars', exphbs({defaultLayout: 'main'}));
 app.set('view engine', 'handlebars');
 
-app.use(logger("dev"));
+// app.use(logger("dev"));
 app.use(bodyParser.urlencoded({
   extended: false
 }));
-app.use(express.static("public"));
+// app.use(express.static("public"));
 
-mongoose.connect("mongodb://localhost/3000");
+mongoose.connect("mongodb://localhost:27017/mongoscrape");
 var db = mongoose.connection;
 
 db.on("error", function(error) {
@@ -32,58 +36,119 @@ db.once("open", function() {
   console.log("Mongoose connection successful.");
 });
 
+var router = express.Router();
+app.use('/', router);
 //renders the index page
-app.get('/', function(req, res) {
-  Article.find({}, function(error, doc) {
-    if (error) {
-      console.log(error);
-    }
-    else {
-      res.send(doc);
-    }
-  });
+router.get('/', function(req, res) {
+  // Article.find({}, function(error, doc) {
+  //   if (error) {
+  //     console.log(error);
+  //   }
+  //   else {
+  //     res.render(doc);
+  //   }
+  // });
+  res.redirect('/articles');
 });
 
-//scrapes Kotaku's website
-app.get('/scrape', function(req, res) {
+//Scrapes Kotaku's home page for articles
+router.get('/scrape', function(req, res) {
   request("http://www.kotaku.com/", function(error, response, html) {
     var $ = cheerio.load(html);
 
-    $("article h1").each(function(i, element){
+    $("article").each(function(i, element){
       var result = {};
 
-      result.title = $(this).children("a").text();
-      result.link = $(this).children("a").attr("href");
-      result.body = "";
+      result.title = $(this).children("header").children("h1").children("a").text();
+      result.link = $(this).children("header").children("h1").children("a").attr("href");
+      result.summary = $(this).children(".item__content").children(".entry-summary").children("p").text();
+      // result.body = "";
 
-      request(result.link, function(error, response, html) {
-        $("article div").each(function(i, element) {
-          result.body += $(this).children("p").text();
-        });
-        var entry = new Article(result);
+      //Tried to next a second request in order to go to the article's page and get its entire contents, didn't work properly
 
-        entry.save(function(err, doc) {
-          if (err) {
-          console.log(err);
-          }
-          else {
-            console.log(doc);
-          }
-        });
+      // request(result.link, function(error, response, html) {
+      //   $("article div").each(function(i, element) {
+      //     result.body += $(this).children("p").text();
+      //   });
+
+      //Checks to see if the article is already in the database, and if it isn't then it adds it
+      Article.findOne({title: result.title}, function(err, doc) {
+        if (doc == null) {
+          var entry = new Article(result);
+
+          entry.save(function(err, doc) {
+            if (err) {
+              console.log(err);
+            }
+            else {
+              console.log(doc);
+            }
+          });
+        }
+        else {
+          console.log('Already in DB');
+        }
       });
+        
+      // });
     });
   });
   res.send("Scrape Complete");
 });
 
-//gets the individual article along with its notes
-app.get('/articles/:id', function(req, res) {
-
+//displays article links
+router.get('/articles', function(req, res) {
+  Article.find(function(err, doc) {
+    articlesObject = {articles: doc};
+    res.render('index', articlesObject);
+  });
 });
 
-//posts a new note
-app.post('/articles/:id/post', function(req, res) {
+//gets the individual article along with its notes
+router.get('/articles/:id', function(req, res) {
+  Article.findOne({_id: req.params.id})
+  .populate("comment")
+  .exec(function(err, doc) {
+    articleObject = {article: doc};
+    res.render('article', articleObject);
+  });
+});
 
+//posts a new comment
+router.post('/articles/:id/comment/create', function(req, res) {
+  var newComment = new Comment(req.body);
+
+  newComment.save(function(err, doc) {
+    if (err) {
+      console.log(error);
+    }
+    else {
+      Article.findOneAndUpdate({"_id": req.params.id}, {"comment": doc._id})
+      .exec(function(err, doc) {
+        if (err) {
+          console.log(err);
+        }
+        else {
+          res.render(doc);
+        }
+      });
+    }
+  });
+});
+
+//deletes a comment
+router.post('/articles/:id1/comment/:id2/delete', function(req, res) {
+  var threadId = req.params.id1;
+  var commentId = req.params.id2;
+
+  Comment.findByIdAndRemove(commentId, function(req, res) {
+    if (err) {
+      console.log(err);
+    } 
+    else {
+      res.redirect('/articles/' + threadId);
+    }
+  });
 });
 
 var port = 3000;

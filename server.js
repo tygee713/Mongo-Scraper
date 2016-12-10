@@ -60,37 +60,39 @@ router.get('/scrape', function(req, res) {
       var result = {};
 
       result.title = $(this).children("header").children("h1").children("a").text();
-      result.link = $(this).children("header").children("h1").children("a").attr("href");
-      result.summary = $(this).children(".item__content").children(".entry-summary").children("p").text();
-      // result.body = "";
+      if (result.title != "" && result.title != null) {
+        result.link = $(this).children("header").children("h1").children("a").attr("href");
+        result.summary = $(this).children(".item__content").children(".entry-summary").children("p").text();
+        // result.body = "";
 
-      //Tried to next a second request in order to go to the article's page and get its entire contents, didn't work properly
+        //Tried to next a second request in order to go to the article's page and get its entire contents, didn't work properly
 
-      // request(result.link, function(error, response, html) {
-      //   $("article div").each(function(i, element) {
-      //     result.body += $(this).children("p").text();
-      //   });
+        // request(result.link, function(error, response, html) {
+        //   $("article div").each(function(i, element) {
+        //     result.body += $(this).children("p").text();
+        //   });
 
-      //Checks to see if the article is already in the database, and if it isn't then it adds it
-      Article.findOne({title: result.title}, function(err, doc) {
-        if (doc == null) {
-          var entry = new Article(result);
+        //Checks to see if the article is already in the database, and if it isn't then it adds it
+        Article.findOne({title: result.title}, function(err, doc) {
+          if (doc == null) {
+            var entry = new Article(result);
 
-          entry.save(function(err, doc) {
-            if (err) {
-              console.log(err);
-            }
-            else {
-              console.log(doc);
-            }
-          });
-        }
-        else {
-          console.log('Already in DB');
-        }
-      });
-        
-      // });
+            entry.save(function(err, doc) {
+              if (err) {
+                console.log(err);
+              }
+              else {
+                console.log(doc);
+              }
+            });
+          }
+          else {
+            console.log('Already in DB');
+          }
+        });
+          
+        // });
+      }
     });
   });
   res.send("Scrape Complete");
@@ -107,8 +109,9 @@ router.get('/articles', function(req, res) {
 //gets the individual article along with its notes
 router.get('/articles/:id', function(req, res) {
   Article.findOne({_id: req.params.id})
-  .populate("comment")
+  .populate("comments")
   .exec(function(err, doc) {
+    console.log(doc);
     articleObject = {article: doc};
     res.render('article', articleObject);
   });
@@ -123,13 +126,13 @@ router.post('/articles/:id/comment/create', function(req, res) {
       console.log(error);
     }
     else {
-      Article.findOneAndUpdate({"_id": req.params.id}, {"comment": doc._id})
+      Article.findOneAndUpdate({"_id": req.params.id}, {$push: {"comments": doc._id}}, {new: true})
       .exec(function(err, doc) {
         if (err) {
           console.log(err);
         }
         else {
-          res.render(doc);
+          res.redirect('/articles/' + req.params.id);
         }
       });
     }
@@ -137,16 +140,17 @@ router.post('/articles/:id/comment/create', function(req, res) {
 });
 
 //deletes a comment
-router.post('/articles/:id1/comment/:id2/delete', function(req, res) {
-  var threadId = req.params.id1;
+router.post('/articles/comment/:id2/delete', function(req, res) {
+  // var threadId = req.params.id1;
   var commentId = req.params.id2;
 
-  Comment.findByIdAndRemove(commentId, function(req, res) {
+  Comment.findByIdAndRemove(commentId, function(err, doc) {
     if (err) {
       console.log(err);
     } 
     else {
-      res.redirect('/articles/' + threadId);
+      // res.redirect('/articles/' + threadId);
+      res.redirect('back');
     }
   });
 });
